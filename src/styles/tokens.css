@@ -1,0 +1,244 @@
+/* ============================================================================
+   FORGE — design tokens
+   ----------------------------------------------------------------------------
+   Direction: "The Forge." Training is metalwork — you apply heat repeatedly and
+   the shape changes. So heat is not decoration here, it is the app's one data
+   encoding: every completion/intensity reading (transformation score, habit
+   streak, weekly consistency, volume heat) is painted from the same ordinal
+   `--kiln-*` ramp, cold deep-rust through white-hot amber. If a number is cold,
+   you can see it is cold without reading it.
+
+   Palette provenance: the categorical `--series-*` slots and their light steps
+   come from the validated reference data-viz palette, re-ordered ember-first so
+   the brand hue leads. That re-order was re-validated (6 slots, dark surface
+   #14161A and light surface #FAF8F4): all adjacent CVD / normal-vision /
+   contrast gates pass. The `--kiln-*` ramp is a generated single-hue OKLCH ramp
+   (hue 48, 5 steps) and passes the ordinal gates: monotone lightness, >=0.06
+   adjacent dL, light end 2.43:1 on the dark surface.
+   Light mode WARN carried forward: three light slots sit under 3:1 on paper, so
+   every chart ships direct labels and a table view (the relief rule).
+   ========================================================================= */
+
+:root {
+  /* --- type families ---------------------------------------------------- */
+  /* Archivo: the gym-sign voice. Headings, eyebrows, section labels.        */
+  --font-display: 'Archivo', 'Noto Sans Tamil', system-ui, sans-serif;
+  /* Hanken Grotesk: humanist body. Prose, buttons, form labels.            */
+  --font-body: 'Hanken Grotesk', 'Noto Sans Tamil', system-ui, sans-serif;
+  /* IBM Plex Mono: the instrument voice. EVERY logged number wears this —
+     weights, reps, calories, timers, scores — so data reads as data.        */
+  --font-data: 'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* --- type scale (mobile-first; 16px body floor) ----------------------- */
+  --fs-micro: 0.6875rem; /* 11px — eyebrows/labels only, never prose */
+  --fs-tiny: 0.75rem; /* 12px — captions, units */
+  --fs-sm: 0.875rem; /* 14px — secondary UI */
+  --fs-base: 1rem; /* 16px — body floor */
+  --fs-lg: 1.125rem; /* 18px */
+  --fs-xl: 1.375rem; /* 22px */
+  --fs-2xl: 1.75rem; /* 28px */
+  --fs-3xl: 2.25rem; /* 36px */
+  --fs-4xl: 3rem; /* 48px — the ring's score, hero readouts */
+  --fs-5xl: 4rem; /* 64px — splash only */
+
+  --lh-tight: 1.05;
+  --lh-snug: 1.25;
+  --lh-body: 1.55;
+  --tr-display: -0.022em; /* Archivo is roomy; pull it in */
+  --tr-eyebrow: 0.14em;
+  --tr-data: -0.01em;
+
+  /* --- spacing (4pt rhythm) -------------------------------------------- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+
+  /* --- radii ------------------------------------------------------------ */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-pill: 999px;
+
+  /* --- layout ----------------------------------------------------------- */
+  --col: 30rem; /* 480px — the phone column, centred on desktop */
+  --rail: 15rem; /* desktop side rail */
+  --tabbar-h: 60px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+
+  /* --- z layers --------------------------------------------------------- */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-tabbar: 20;
+  --z-scrim: 40;
+  --z-sheet: 50;
+  --z-toast: 100;
+
+  /* --- motion ----------------------------------------------------------- */
+  --t-fast: 120ms;
+  --t-mid: 220ms;
+  --t-slow: 340ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.42, 0.64, 1);
+
+  /* --- kiln ramp: the one intensity encoding (same in both themes) ------ */
+  --kiln-1: #8a4011; /* cold / dormant */
+  --kiln-2: #b25720;
+  --kiln-3: #d87339;
+  --kiln-4: #f69561;
+  --kiln-5: #ffbc94; /* white-hot */
+}
+
+/* ===========================================================================
+   DARK — the default. "Premium dark fitness UI" per brief.
+   Surfaces are warm-neutral charcoal, not blue-black; text is chalk, not pure
+   white, because this app is read in a gym at 6am and pure white glares.
+   Elevation is carried by hairline borders + surface steps, NOT drop shadows —
+   shadows read as mush on near-black.
+   ======================================================================== */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --ink: #0a0b0d; /* page canvas */
+  --surface-1: #14161a; /* cards */
+  --surface-2: #1c1f25; /* raised / inputs */
+  --surface-3: #23272f; /* pressed / selected */
+  --surface-inset: #0e1013; /* wells, track grooves */
+
+  --hairline: #2b3038;
+  --hairline-strong: #3a4049;
+
+  --text-1: #f3f0ea; /* chalk */
+  --text-2: #9ba2ac;
+  --text-3: #6b727c;
+  --text-on-ember: #14100e;
+
+  --ember: #e8552e; /* brand accent — UI only, never a chart series */
+  --ember-soft: #2a1510; /* ember tint for fills/badges */
+  --ember-line: #5d2a1b;
+
+  --good: #199e70;
+  --good-soft: #0d2a20;
+  --warn: #c98500;
+  --warn-soft: #2b2008;
+  --critical: #e66767;
+  --critical-soft: #2e1618;
+
+  /* categorical series (ember-led, re-validated order) */
+  --series-1: #d95926;
+  --series-2: #3987e5;
+  --series-3: #199e70;
+  --series-4: #9085e9;
+  --series-5: #d55181;
+  --series-6: #c98500;
+
+  --grid: #22262d; /* recessive gridlines */
+  --axis: #343a43;
+
+  --scrim: rgb(5 6 7 / 0.72);
+  --focus: #f69561;
+}
+
+/* ===========================================================================
+   LIGHT — a selected counterpart, not an inversion. Paper is warm (#FAF8F4)
+   so the ember accent stays in family; series slots are their light steps.
+   ======================================================================== */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --ink: #f4f1ea;
+  --surface-1: #fffefb;
+  --surface-2: #f6f3ec;
+  --surface-3: #ebe6db;
+  --surface-inset: #efebe2;
+
+  --hairline: #ddd7c9;
+  --hairline-strong: #c4bca9;
+
+  --text-1: #15171a;
+  --text-2: #55534d;
+  --text-3: #7c796f;
+  --text-on-ember: #fffefb;
+
+  --ember: #c2401c;
+  --ember-soft: #fbeae3;
+  --ember-line: #e9c3b2;
+
+  --good: #0f7a54;
+  --good-soft: #e2f2eb;
+  --warn: #8f5f00;
+  --warn-soft: #faf0d8;
+  --critical: #c23b3b;
+  --critical-soft: #fbe6e6;
+
+  --series-1: #eb6834;
+  --series-2: #2a78d6;
+  --series-3: #1baf7a;
+  --series-4: #4a3aa7;
+  --series-5: #e87ba4;
+  --series-6: #eda100;
+
+  --grid: #e5dfd1;
+  --axis: #c9c1ae;
+
+  --scrim: rgb(28 24 18 / 0.44);
+  --focus: #c2401c;
+
+  /* kiln re-stepped for paper: light end must still clear the surface */
+  --kiln-1: #f3c9ae;
+  --kiln-2: #ef9c6c;
+  --kiln-3: #dd6f31;
+  --kiln-4: #b85318;
+  --kiln-5: #8a3c0d;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --ink: #f4f1ea;
+    --surface-1: #fffefb;
+    --surface-2: #f6f3ec;
+    --surface-3: #ebe6db;
+    --surface-inset: #efebe2;
+    --hairline: #ddd7c9;
+    --hairline-strong: #c4bca9;
+    --text-1: #15171a;
+    --text-2: #55534d;
+    --text-3: #7c796f;
+    --text-on-ember: #fffefb;
+    --ember: #c2401c;
+    --ember-soft: #fbeae3;
+    --ember-line: #e9c3b2;
+    --good: #0f7a54;
+    --good-soft: #e2f2eb;
+    --warn: #8f5f00;
+    --warn-soft: #faf0d8;
+    --critical: #c23b3b;
+    --critical-soft: #fbe6e6;
+    --series-1: #eb6834;
+    --series-2: #2a78d6;
+    --series-3: #1baf7a;
+    --series-4: #4a3aa7;
+    --series-5: #e87ba4;
+    --series-6: #eda100;
+    --grid: #e5dfd1;
+    --axis: #c9c1ae;
+    --scrim: rgb(28 24 18 / 0.44);
+    --focus: #c2401c;
+    --kiln-1: #f3c9ae;
+    --kiln-2: #ef9c6c;
+    --kiln-3: #dd6f31;
+    --kiln-4: #b85318;
+    --kiln-5: #8a3c0d;
+  }
+}

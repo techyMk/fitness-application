@@ -1,0 +1,23 @@
+{
+  "name": "Forge — Transformation Log",
+  "short_name": "Forge",
+  "description": "A personal fitness transformation system: weight, training, nutrition, cardio, sleep and habits in one local-first log.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0A0B0D",
+  "theme_color": "#0A0B0D",
+  "categories": ["health", "fitness", "lifestyle"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Start workout", "url": "/workout", "short_name": "Workout" },
+    { "name": "Log food", "url": "/nutrition", "short_name": "Food" },
+    { "name": "Daily check-in", "url": "/check-in", "short_name": "Check-in" }
+  ]
+}
