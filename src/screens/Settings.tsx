@@ -12,6 +12,7 @@
    ========================================================================= */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
   Check,
@@ -39,6 +40,7 @@ import {
 } from '../lib/backup'
 import { ConfirmSheet, ScreenHeader, Sheet, Stepper, useToast } from '../components/ui'
 import { KEY_STORE } from './Coach'
+import { fmtSyncAge, useAuth } from '../lib/auth'
 
 const GOALS: GoalType[] = ['fat-loss', 'muscle-gain', 'recomp', 'maintenance', 'general', 'custom']
 const ACTIVITIES: ActivityLevel[] = ['sedentary', 'light', 'moderate', 'very', 'extreme']
@@ -62,6 +64,8 @@ export default function Settings() {
   const profile = data.profile!
   const fmt = useMemo(() => makeFmt(profile.units), [profile.units])
 
+  const auth = useAuth()
+  const navigate = useNavigate()
   const [sheet, setSheet] = useState<'profile' | 'targets' | 'dashboard' | 'key' | null>(null)
   const [resetting, setResetting] = useState(false)
   const [storage, setStorage] = useState<{ usedMb: number; quotaMb: number } | null>(null)
@@ -119,6 +123,32 @@ export default function Settings() {
       <ScreenHeader title={t('set.title')} back="/more" />
 
       {/* ------------------------------ profile ---------------------------- */}
+      {/* Account first: it is the only row that changes where the data lives. */}
+      <div className="eyebrow">Account</div>
+      <div className="card card--flush">
+        <SettingRow
+          label={auth.user ? 'Signed in' : 'Sync & backup'}
+          value={
+            auth.available === false
+              ? 'Not set up'
+              : auth.user
+                ? auth.user.email
+                : 'Not signed in'
+          }
+          onClick={() => navigate('/account')}
+        />
+        {auth.user && (
+          <>
+            <div className="divider" />
+            <SettingRow
+              label="Last sync"
+              value={auth.phase === 'syncing' || auth.phase === 'photos' ? 'Syncing…' : fmtSyncAge(auth.syncedAt)}
+              onClick={() => navigate('/account')}
+            />
+          </>
+        )}
+      </div>
+
       <div className="eyebrow">{t('set.profile')}</div>
       <div className="card card--flush">
         <SettingRow label="Name" value={profile.name} onClick={() => setSheet('profile')} />

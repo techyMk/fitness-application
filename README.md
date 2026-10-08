@@ -10,10 +10,15 @@ personal records, progression suggestions, streaks and a daily score.
 
 ```bash
 npm install
-npm run dev        # http://localhost:5180
+npm run dev        # API :3001 + client :5180, proxied so it is one origin
 npm run build      # typecheck + production build
-npm run preview    # serve the build on :4173
+npm test           # merge-engine tests
+npm start          # production: one process serving API + client
 ```
+
+Runs with **no configuration at all** — local-first, no account. Copy
+`.env.example` to `.env` and add a Neon URL only when you want accounts and
+multi-device sync.
 
 ---
 
@@ -144,19 +149,114 @@ average into a lie.
 **Predictions are labelled as estimates** everywhere they appear, with a confidence
 reading derived from how many data points back them.
 
-**Photos are private by default**, structurally: blobs stay on-device, nothing is
-uploaded, `shared` defaults to false. The screen says so in plain words.
+**Photos are private by default**, structurally: `shared` defaults to false and
+the blobs live on-device. Once an account is connected they also sync to that
+account and nowhere else, and the on-screen banner changes to say so — claiming
+"nothing is uploaded" while photos travel to a server would be the worst lie
+this app could tell.
 
-**The friend board is a local scorecard.** There is no backend in V1, so you type
-your friends' numbers. Only consistency metrics are rankable — weight, body data
-and photos are never comparable, per §34.
+**The friend board is still a local scorecard**, even though a backend now
+exists. Sharing between accounts needs its own privacy model — §34 forbids
+exposing body data — and that is a separate design problem from sync. So you
+type your friends' numbers, and only consistency metrics are rankable.
 
-**Backup is the login story.** No mandatory account (§42), so identity is a random
-`deviceId` minted on first run and carried inside the backup file. Restoring on a
-new phone adopts it. The file contains everything including photos as base64 — a
-backup that silently drops the day-one photo is not a backup.
+**Backup still matters even with an account.** No mandatory login (§42), so a
+signed-out user's identity is a random `deviceId` minted on first run and
+carried inside the backup file. The file contains everything including photos as
+base64 — a backup that silently drops the day-one photo is not a backup. With an
+account it stops being the *only* copy, but it is still the one that works when
+the server is gone.
 
 ---
+
+---
+
+## Accounts & sync (optional)
+
+The app is local-first and stays that way. An account adds durability and a
+second device; it is never a gate. With no `DATABASE_URL` the server reports
+`sync: false`, the Account screen explains why, and every feature still works.
+
+### Why local-first + sync, rather than a server database
+
+Three constraints ruled out making Neon the primary store:
+
+1. **No mandatory login (§42).** A server store needs to know whose rows are
+   whose. Keying on a device id instead would mean anyone who guessed one could
+   read someone's weight history and progress photos.
+2. **The browser cannot hold a connection string.** Anything shipped to the
+   client is readable, so a direct Neon connection would publish the database.
+3. **The gym has no signal.** Logging a set must not wait on a round trip.
+
+So IndexedDB stays the source of truth and the server is a sync target.
+
+### The shape of it
+
+```
+IndexedDB (truth)  ──►  /api/sync  ──►  Neon  (one jsonb row per account)
+   instant, offline       JWT auth        durable, multi-device
+        ▲                                        │
+        └──────── pull + merge on the other device ◄──┘
+```
+
+One row per user, the whole document in `jsonb`. Nothing server-side queries
+inside it, so there is no reason to model sets and meals relationally.
+
+### Merging, and why it is the hard part
+
+Two devices edit offline; when they meet, something must decide what the log
+contains. Both naive answers lose data — last-writer-wins discards the other
+device's week, and a plain union resurrects everything you deleted.
+
+`src/lib/merge.ts` is a per-collection merge with three rules: union by id,
+later `updatedAt` wins a collision, and a tombstone kills a record if the
+deletion happened after that record's last write. It is **commutative,
+idempotent and lossless**, and `merge.test.ts` asserts exactly that — those
+properties are what stop "my phone keeps undoing my laptop".
+
+Pushes use optimistic concurrency: the server accepts a write only if the
+client's `baseRev` still matches, otherwise it returns 409 with the current
+document so the client can merge and retry. The server never merges — one
+implementation of that logic is hard enough to keep correct.
+
+### Security
+
+| | |
+|---|---|
+| Passwords | bcrypt, cost 12 |
+| Access token | 15-minute JWT, **in memory only** — never localStorage, so XSS cannot read it |
+| Refresh token | opaque, httpOnly `SameSite=Lax` cookie, stored hashed, **rotated on every use** |
+| Token replay | a spent refresh token revokes its entire family |
+| Login | one error message for unknown-email and wrong-password, so accounts cannot be enumerated |
+| Rate limit | 20 attempts / 15 min per IP on auth routes |
+| CORS | none needed — API and client are same-origin by design |
+| Secrets | the server refuses to boot in production without `JWT_SECRET` |
+
+### Photos
+
+Downscaled to 1280px / JPEG q0.82 **before they are ever stored** — a raw camera
+file is 3–6 MB, and 90 days of three angles would blow past both the device
+quota and Neon's. They land around 150 KB.
+
+They sync as a set difference against `/api/photos`, not through the merge, and
+are capped by `PHOTO_QUOTA_BYTES` (200 MB ≈ 1,300 photos). Storing blobs in
+Postgres is a deliberate trade for a one-service deployment; swap the `photos`
+table for S3/R2 presigned URLs when that stops being true.
+
+### Deploying
+
+**One host (recommended).** `npm run build && npm start` — Express serves the
+API and `dist/` on the same origin, which is what keeps the refresh cookie
+working with no CORS.
+
+**Vercel.** `api/index.js` is the serverless entry; Vercel serves `dist/`
+itself. Set `DATABASE_URL` and `JWT_SECRET` in the project settings.
+
+**Static only.** Deploy `dist/` anywhere. No API, no accounts — a fully
+supported configuration, not a degraded one.
+
+Serve over HTTPS or the service worker will not register, and add a SPA rewrite
+so `/analytics` resolves to `index.html`.
 
 ## Phase status
 
@@ -179,6 +279,11 @@ preferences, dashboard customisation, friend leaderboard.
 
 Tier 1 is the default on purpose: an app that can only coach when a key is present
 fails the "use the user's logged data" requirement on day one.
+
+### Accounts & sync · complete
+Optional email/password accounts on Neon, conflict-free document merge with
+tombstones, photo sync with client-side downscaling, and full anonymous
+operation when no database is configured.
 
 ### Phase 4 — Voice coach · not built, not blocking
 Per §37–38 this is explicitly optional and must not be a dependency. Nothing in the
@@ -209,9 +314,27 @@ Verified by driving the built app in a real browser:
 - Charts carry a legend, a hover/tap layer and a table view; no chart relies on
   colour alone; there are no dual-axis charts anywhere.
 
+Sync is verified by driving **two independent browser profiles** against a live
+API (16 checks, all passing, zero console errors):
+
+- data logged before signing up is uploaded, not replaced
+- a second device pulls the first device's history on sign-in
+- concurrent edits on both devices converge to the same document
+- a deletion on one device is not resurrected by the other
+- built-in programmes survive a merge
+- repeated syncs do not keep bumping the revision (no push ping-pong)
+- with no API at all, onboarding and logging still work end to end
+
 ### Known limits
 
-- **Friend leaderboard numbers are manual.** No backend in V1.
+- **No password reset.** There is no mail sender wired up, so a forgotten
+  password means the account is unreachable — the backup file is the fallback.
+  This is the first thing to add if this ships to anyone but you.
+- **Friend leaderboard numbers are manual.** The sync layer exists now, but
+  sharing between accounts would need its own privacy model (§34 forbids
+  exposing body data), so it was left as a local scorecard.
+- **Rate limiting is in-memory.** Correct for one instance; move it to Redis
+  before scaling out, or each instance gets its own allowance.
 - **Notification preferences are stored but not scheduled.** Wiring them to the
   service worker's `showNotification` needs a scheduling strategy that survives a
   closed PWA; the preference model and permission prompt are in place for it.

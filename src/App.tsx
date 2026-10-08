@@ -10,6 +10,7 @@
 import { Suspense, lazy, useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useStore } from './lib/store'
+import { AuthProvider } from './lib/auth'
 import { I18nProvider } from './lib/i18n'
 import { SideRail, TabBar } from './components/Nav'
 import { Onboarding } from './screens/Onboarding'
@@ -43,6 +44,7 @@ const Phases = lazy(() => import('./screens/Phases'))
 const Friends = lazy(() => import('./screens/Friends'))
 const Coach = lazy(() => import('./screens/Coach'))
 const Settings = lazy(() => import('./screens/Settings'))
+const Account = lazy(() => import('./screens/Account'))
 
 export function App() {
   const { data, ready } = useStore()
@@ -60,7 +62,7 @@ export function App() {
 
   return (
     <I18nProvider lang={data.profile?.lang ?? 'en'}>
-      {!data.profile ? <Onboarding /> : <Main />}
+      {!data.profile ? <Onboarding /> : <AuthProvider><Main /></AuthProvider>}
     </I18nProvider>
   )
 }
@@ -102,6 +104,7 @@ function Main() {
             <Route path="/friends" element={<Friends />} />
             <Route path="/coach" element={<Coach />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/account" element={<Account />} />
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

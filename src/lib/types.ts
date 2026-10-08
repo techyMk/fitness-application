@@ -12,6 +12,18 @@
 export type DateKey = string // YYYY-MM-DD, local
 export type ID = string
 
+/**
+ * Every record that can be edited after creation carries a write stamp. The
+ * merge in lib/sync.ts resolves a concurrent edit by keeping the later one, so
+ * without this two devices editing the same row would be a coin flip.
+ *
+ * Optional because documents written before sync existed have no stamp; the
+ * merge reads a missing stamp as 0, i.e. "older than anything".
+ */
+export interface Tracked {
+  updatedAt?: number
+}
+
 export type Units = 'metric' | 'imperial'
 export type Lang = 'en' | 'ta'
 export type Theme = 'dark' | 'light' | 'system'
@@ -79,7 +91,7 @@ export interface Profile {
 
 /* --------------------------------- body ---------------------------------- */
 
-export interface WeightEntry {
+export interface WeightEntry extends Tracked {
   id: ID
   date: DateKey
   kg: number
@@ -102,7 +114,7 @@ export type MuscleGroup =
   | 'forearms'
   | 'full-body'
 
-export interface Exercise {
+export interface Exercise extends Tracked {
   id: ID
   name: string
   muscle: MuscleGroup
@@ -131,7 +143,7 @@ export interface SetEntry {
   note?: string
 }
 
-export interface WorkoutSession {
+export interface WorkoutSession extends Tracked {
   id: ID
   date: DateKey
   /** program day this session came from, if any */
@@ -156,7 +168,7 @@ export interface PlanDay {
   exerciseIds: ID[]
 }
 
-export interface WorkoutPlan {
+export interface WorkoutPlan extends Tracked {
   id: ID
   name: string
   description?: string
@@ -200,7 +212,7 @@ export interface NonGymRecord {
 
 export type MealType = 'breakfast' | 'lunch' | 'snacks' | 'dinner' | 'other'
 
-export interface Food {
+export interface Food extends Tracked {
   id: ID
   name: string
   /** display label for one serving, e.g. "1 roti (45 g)" */
@@ -227,7 +239,7 @@ export interface FoodPortion {
   fat: number
 }
 
-export interface MealEntry {
+export interface MealEntry extends Tracked {
   id: ID
   date: DateKey
   type: MealType
@@ -235,7 +247,7 @@ export interface MealEntry {
   loggedAt: number
 }
 
-export interface SavedMeal {
+export interface SavedMeal extends Tracked {
   id: ID
   name: string
   type: MealType
@@ -246,7 +258,7 @@ export interface SavedMeal {
 
 export type CardioType = 'walk' | 'run' | 'cycle' | 'treadmill' | 'other'
 
-export interface CardioEntry {
+export interface CardioEntry extends Tracked {
   id: ID
   date: DateKey
   type: CardioType
@@ -263,7 +275,7 @@ export interface StepEntry {
   steps: number
 }
 
-export interface SleepEntry {
+export interface SleepEntry extends Tracked {
   id: ID
   date: DateKey
   /** "22:45" local clock strings — stored as typed, derived duration cached */
@@ -275,7 +287,7 @@ export interface SleepEntry {
 
 /* ------------------------- habits & supplements --------------------------- */
 
-export interface Habit {
+export interface Habit extends Tracked {
   id: ID
   name: string
   icon: string
@@ -288,7 +300,7 @@ export interface Habit {
 /** date -> habitId[] completed */
 export type HabitLog = Record<DateKey, ID[]>
 
-export interface Supplement {
+export interface Supplement extends Tracked {
   id: ID
   name: string
   dosage: string
@@ -302,7 +314,7 @@ export type SupplementLog = Record<DateKey, ID[]>
 
 /* ------------------------------ check-in --------------------------------- */
 
-export interface CheckIn {
+export interface CheckIn extends Tracked {
   date: DateKey
   energy?: 1 | 2 | 3 | 4 | 5
   hunger?: 1 | 2 | 3 | 4 | 5
@@ -316,7 +328,7 @@ export interface CheckIn {
 
 export type PhotoAngle = 'front' | 'side' | 'back'
 
-export interface ProgressPhoto {
+export interface ProgressPhoto extends Tracked {
   id: ID
   date: DateKey
   angle: PhotoAngle
@@ -340,7 +352,7 @@ export type GoalMetric =
   | 'sleep-hours'
   | 'challenge'
 
-export interface Goal {
+export interface Goal extends Tracked {
   id: ID
   metric: GoalMetric
   label: string
@@ -354,7 +366,7 @@ export interface Goal {
   completedAt?: DateKey
 }
 
-export interface Challenge {
+export interface Challenge extends Tracked {
   id: ID
   name: string
   days: number
@@ -366,7 +378,7 @@ export interface Challenge {
   completedAt?: DateKey
 }
 
-export interface Phase {
+export interface Phase extends Tracked {
   id: ID
   name: string
   goal: GoalType
@@ -428,7 +440,7 @@ export interface DashCard {
 
 /* --------------------------- friends / board ----------------------------- */
 
-export interface Friend {
+export interface Friend extends Tracked {
   id: ID
   name: string
   /** manual entry — V1 has no backend, so a friend board is a local scorecard */
@@ -485,4 +497,38 @@ export interface AppData {
   lastBackupAt: number | null
   /** stable anonymous id — the backup identity, see lib/backup.ts */
   deviceId: string
+
+  /* ------------------------------ sync state -----------------------------
+     Present whether or not the user has an account. An anonymous log simply
+     never pushes; the fields still accumulate so that signing in later can
+     merge a year of offline history without losing any of it.
+     --------------------------------------------------------------------- */
+
+  /** server revision this document was last merged from; 0 = never synced */
+  rev: number
+  /** epoch ms of the last successful push/pull, for the UI's "synced N ago" */
+  syncedAt: number | null
+
+  /**
+   * Tombstones: record id -> epoch ms it was deleted.
+   *
+   * Without these a merge is a union, and a union resurrects every record the
+   * other device deleted. Entries are pruned after TOMBSTONE_TTL (see sync.ts)
+   * because a tombstone older than any possible unsynced device is dead weight.
+   */
+  deleted: Record<ID, number>
+
+  /**
+   * Per-day write stamps for the two map-shaped logs. Habit and supplement
+   * ticks are edited as a whole day in the UI, so the day is the merge unit —
+   * a per-id stamp would be more precise than the interaction it models.
+   */
+  habitLogAt: Record<DateKey, number>
+  supplementLogAt: Record<DateKey, number>
+
+  /** write stamps for the singleton blobs, which have nowhere else to carry one */
+  profileAt: number
+  settingsAt: number
+  /** date -> epoch ms, for the date-keyed step log */
+  stepsAt: Record<DateKey, number>
 }

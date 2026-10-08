@@ -16,6 +16,8 @@ import { Camera, ChevronLeft, ChevronRight, Lock, Plus, Trash2 } from 'lucide-re
 import type { PhotoAngle, ProgressPhoto } from '../lib/types'
 import { getBlob } from '../lib/db'
 import { useStore } from '../lib/store'
+import { useAuth } from '../lib/auth'
+import { shrinkImage } from '../lib/sync'
 import { useT } from '../lib/i18n'
 import { makeFmt } from '../lib/units'
 import { daysBetween, fmtDate, today } from '../lib/date'
@@ -59,6 +61,7 @@ export default function Photos() {
   const profile = data.profile!
   const fmt = useMemo(() => makeFmt(profile.units), [profile.units])
 
+  const auth = useAuth()
   const [angle, setAngle] = useState<PhotoAngle>('front')
   const [mode, setMode] = useState<'timeline' | 'compare'>('timeline')
   const [adding, setAdding] = useState(false)
@@ -86,10 +89,16 @@ export default function Photos() {
         }
       />
 
+      {/* The honest version of this banner depends on whether an account is
+          connected. Claiming "nothing is uploaded" while photos sync to a
+          server would be the single worst lie this app could tell. */}
       <p className="ph-privacy">
         <Lock size={13} aria-hidden="true" />
         <span>
-          <strong>{t('photos.private')}.</strong> {t('photos.private.body')}
+          <strong>{t('photos.private')}.</strong>{' '}
+          {auth.user
+            ? `Stored on this device and in your private account (${auth.user.email}). Only you can see them — they are never part of the friend leaderboard.`
+            : t('photos.private.body')}
         </span>
       </p>
 
@@ -179,7 +188,11 @@ export default function Photos() {
           toast.show('Photo deleted')
         }}
         title="Delete this photo?"
-        body="The image file is removed from this device. This cannot be undone."
+        body={
+          auth.user
+            ? 'The image is removed from this device and from your account on the next sync. This cannot be undone.'
+            : 'The image file is removed from this device. This cannot be undone.'
+        }
       />
 
       <style>{`
@@ -520,6 +533,7 @@ function Picker({
 function AddPhotoSheet({ angle, onClose }: { angle: PhotoAngle; onClose: () => void }) {
   const { t } = useT()
   const { data, actions } = useStore()
+  const auth = useAuth()
   const toast = useToast()
   const profile = data.profile!
   const fmt = makeFmt(profile.units)
@@ -550,7 +564,10 @@ function AddPhotoSheet({ angle, onClose }: { angle: PhotoAngle; onClose: () => v
     }
     setSaving(true)
     try {
-      await actions.addPhoto(file, chosenAngle, date, latestWeight)
+      // Downscale before it is ever stored: a raw camera file is 3-6 MB, and
+      // 90 days of three angles would blow past the device quota and the
+      // server's. 1280px is still more than enough to see a change.
+      await actions.addPhoto(await shrinkImage(file), chosenAngle, date, latestWeight)
       toast.show('Photo saved to this device', { tone: 'good' })
       onClose()
     } catch {
@@ -642,7 +659,9 @@ function AddPhotoSheet({ angle, onClose }: { angle: PhotoAngle; onClose: () => v
 
         <p className="ap-privacy">
           <Lock size={12} aria-hidden="true" />
-          Saved to this device only. Nothing is uploaded.
+          {auth.user
+            ? 'Saved to this device and your private account. Resized to 1280px first.'
+            : 'Saved to this device only. Nothing is uploaded.'}
         </p>
       </div>
 

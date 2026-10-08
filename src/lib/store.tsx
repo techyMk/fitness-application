@@ -57,7 +57,12 @@ import { addDays, today } from './date'
 
 /* ------------------------------ initial data ----------------------------- */
 
-export const DATA_VERSION = 1
+/**
+ * 1 → 2 added the sync fields (rev, tombstones, per-record write stamps).
+ * migrate() fills them in additively, so a v1 document opens unchanged and
+ * simply has no sync history until its first write.
+ */
+export const DATA_VERSION = 2
 
 export const DEFAULT_DASHBOARD: DashCard[] = [
   { id: 'challenge', visible: true },
@@ -84,6 +89,9 @@ const DEFAULT_NOTIFICATIONS: NotificationPrefs = {
   checkInTime: '20:30',
   workoutTime: '18:00',
 }
+
+/** Write stamp for sync. Module scope so record factories can reach it too. */
+const now = () => Date.now()
 
 function uid(prefix = ''): string {
   const rand =
@@ -126,6 +134,15 @@ export function emptyData(): AppData {
     coachLog: [],
     lastBackupAt: null,
     deviceId: uid('dev-'),
+
+    rev: 0,
+    syncedAt: null,
+    deleted: {},
+    habitLogAt: {},
+    supplementLogAt: {},
+    profileAt: 0,
+    settingsAt: 0,
+    stepsAt: {},
   }
 }
 
@@ -133,10 +150,10 @@ export function emptyData(): AppData {
 function starterHabits(): Habit[] {
   const createdAt = today()
   return [
-    { id: uid('h-'), name: 'Train as planned', icon: 'dumbbell', auto: 'workout', createdAt },
-    { id: uid('h-'), name: 'Hit protein target', icon: 'beef', auto: 'protein', createdAt },
-    { id: uid('h-'), name: 'Hit step target', icon: 'footprints', auto: 'steps', createdAt },
-    { id: uid('h-'), name: 'No junk food', icon: 'ban', createdAt },
+    { id: uid('h-'), updatedAt: now(), name: 'Train as planned', icon: 'dumbbell', auto: 'workout', createdAt },
+    { id: uid('h-'), updatedAt: now(), name: 'Hit protein target', icon: 'beef', auto: 'protein', createdAt },
+    { id: uid('h-'), updatedAt: now(), name: 'Hit step target', icon: 'footprints', auto: 'steps', createdAt },
+    { id: uid('h-'), updatedAt: now(), name: 'No junk food', icon: 'ban', createdAt },
   ]
 }
 
@@ -369,34 +386,41 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     /** patch + reconcile, for anything that can move a record or badge */
     const patchR = (fn: (d: AppData) => AppData) => patch((d) => reconcile(fn(d)))
 
+    /** Record a tombstone so the deletion survives a merge with another device. */
+    const tomb = (d: AppData, ...ids: ID[]): AppData => ({
+      ...d,
+      deleted: { ...d.deleted, ...Object.fromEntries(ids.map((id) => [id, now()])) },
+    })
+
     return {
       /* ---------------------------- profile ---------------------------- */
       completeOnboarding(profile, planId) {
         patchR((d) => ({
           ...d,
           profile: { ...profile, id: uid('u-'), createdAt: today() },
+          profileAt: now(),
           activePlanId: planId,
           habits: d.habits.length ? d.habits : starterHabits(),
           weights: d.weights.length
             ? d.weights
-            : [{ id: uid('w-'), date: today(), kg: profile.startWeightKg }],
+            : [{ id: uid('w-'), updatedAt: now(), date: today(), kg: profile.startWeightKg }],
         }))
       },
 
       updateProfile(p) {
-        patchR((d) => (d.profile ? { ...d, profile: { ...d.profile, ...p } } : d))
+        patchR((d) => (d.profile ? { ...d, profile: { ...d.profile, ...p }, profileAt: now() } : d))
       },
 
       setTheme(theme) {
-        patch((d) => (d.profile ? { ...d, profile: { ...d.profile, theme } } : d))
+        patch((d) => (d.profile ? { ...d, profile: { ...d.profile, theme }, profileAt: now() } : d))
       },
 
       setDashboard(dashboard) {
-        patch((d) => ({ ...d, dashboard }))
+        patch((d) => ({ ...d, dashboard, settingsAt: now() }))
       },
 
       setNotifications(p) {
-        patch((d) => ({ ...d, notifications: { ...d.notifications, ...p } }))
+        patch((d) => ({ ...d, notifications: { ...d.notifications, ...p }, settingsAt: now() }))
       },
 
       /* ----------------------------- weight ---------------------------- */
@@ -404,20 +428,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         patchR((d) => {
           const existing = d.weights.find((w) => w.date === date)
           const weights = existing
-            ? d.weights.map((w) => (w.date === date ? { ...w, kg, note } : w))
-            : [...d.weights, { id: uid('w-'), date, kg, note } satisfies WeightEntry]
+            ? d.weights.map((w) => (w.date === date ? { ...w, kg, note, updatedAt: now() } : w))
+            : [...d.weights, { id: uid('w-'), updatedAt: now(), date, kg, note } satisfies WeightEntry]
           return { ...d, weights }
         })
       },
 
       deleteWeight(id) {
-        patchR((d) => ({ ...d, weights: d.weights.filter((w) => w.id !== id) }))
+        patchR((d) => tomb({ ...d, weights: d.weights.filter((w) => w.id !== id) }, id))
       },
 
       /* ---------------------------- training --------------------------- */
       startSession(title, planId, dayIndex) {
         const session: WorkoutSession = {
-          id: uid('s-'),
+          id: uid('s-'), updatedAt: now(),
           date: today(),
           planId,
           dayIndex,
@@ -434,7 +458,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateSession(id, p) {
         patch((d) => ({
           ...d,
-          sessions: d.sessions.map((s) => (s.id === id ? { ...s, ...p } : s)),
+          sessions: d.sessions.map((s) => (s.id === id ? { ...s, ...p, updatedAt: now() } : s)),
         }))
       },
 
@@ -442,7 +466,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         patch((d) => ({
           ...d,
           sessions: d.sessions.map((s) =>
-            s.id === sessionId ? { ...s, sets: [...s.sets, { ...set, id: uid('set-') }] } : s,
+            s.id === sessionId ? { ...s, sets: [...s.sets, { ...set, id: uid('set-'), updatedAt: now() }] } : s,
           ),
         }))
       },
@@ -452,7 +476,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...d,
           sessions: d.sessions.map((s) =>
             s.id === sessionId
-              ? { ...s, sets: s.sets.map((x) => (x.id === setId ? { ...x, ...p } : x)) }
+              ? { ...s, sets: s.sets.map((x) => (x.id === setId ? { ...x, ...p, updatedAt: now() } : x)) }
               : s,
           ),
         }))
@@ -497,7 +521,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       discardSession(id) {
-        patch((d) => ({ ...d, sessions: d.sessions.filter((s) => s.id !== id) }))
+        patch((d) => tomb({ ...d, sessions: d.sessions.filter((s) => s.id !== id) }, id))
       },
 
       savePlan(plan) {
@@ -511,25 +535,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       deletePlan(id) {
-        patch((d) => ({
-          ...d,
-          plans: d.plans.filter((p) => p.id !== id),
-          activePlanId: d.activePlanId === id ? null : d.activePlanId,
-        }))
+        patch((d) =>
+          tomb(
+            {
+              ...d,
+              plans: d.plans.filter((p) => p.id !== id),
+              activePlanId: d.activePlanId === id ? null : d.activePlanId,
+              settingsAt: now(),
+            },
+            id,
+          ),
+        )
       },
 
       setActivePlan(id) {
-        patch((d) => ({ ...d, activePlanId: id }))
+        patch((d) => ({ ...d, activePlanId: id, settingsAt: now() }))
       },
 
       addCustomExercise(e) {
-        const created: Exercise = { ...e, id: uid('ex-'), custom: true }
+        const created: Exercise = { ...e, id: uid('ex-'), updatedAt: now(), custom: true }
         patch((d) => ({ ...d, customExercises: [...d.customExercises, created] }))
         return created
       },
 
       deleteCustomExercise(id) {
-        patch((d) => ({ ...d, customExercises: d.customExercises.filter((e) => e.id !== id) }))
+        patch((d) => tomb({ ...d, customExercises: d.customExercises.filter((e) => e.id !== id) }, id))
       },
 
       /* ---------------------------- nutrition -------------------------- */
@@ -544,19 +574,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               ),
             }
           }
-          const meal: MealEntry = { id: uid('m-'), date, type, items, loggedAt: Date.now() }
+          const meal: MealEntry = { id: uid('m-'), updatedAt: now(), date, type, items, loggedAt: Date.now() }
           return { ...d, meals: [...d.meals, meal] }
         })
       },
 
       removeMealItem(mealId, itemId) {
-        patchR((d) => ({
-          ...d,
-          meals: d.meals
-            .map((m) => (m.id === mealId ? { ...m, items: m.items.filter((i) => i.id !== itemId) } : m))
+        patchR((d) => {
+          const meals = d.meals
+            .map((m) =>
+              m.id === mealId
+                ? { ...m, items: m.items.filter((i) => i.id !== itemId), updatedAt: now() }
+                : m,
+            )
             // an empty meal row is noise — drop it
-            .filter((m) => m.items.length > 0),
-        }))
+            .filter((m) => m.items.length > 0)
+          // If the row went away entirely it is a deletion, not an edit.
+          const vanished = !meals.some((m) => m.id === mealId)
+          return vanished ? tomb({ ...d, meals }, mealId) : { ...d, meals }
+        })
       },
 
       updateMealItem(mealId, itemId, p) {
@@ -564,37 +600,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...d,
           meals: d.meals.map((m) =>
             m.id === mealId
-              ? { ...m, items: m.items.map((i) => (i.id === itemId ? { ...i, ...p } : i)) }
+              ? { ...m, items: m.items.map((i) => (i.id === itemId ? { ...i, ...p, updatedAt: now() } : i)) }
               : m,
           ),
         }))
       },
 
       saveMeal(meal) {
-        patch((d) => ({ ...d, savedMeals: [...d.savedMeals, { ...meal, id: uid('sm-') }] }))
+        patch((d) => ({ ...d, savedMeals: [...d.savedMeals, { ...meal, id: uid('sm-'), updatedAt: now() }] }))
       },
 
       deleteSavedMeal(id) {
-        patch((d) => ({ ...d, savedMeals: d.savedMeals.filter((m) => m.id !== id) }))
+        patch((d) => tomb({ ...d, savedMeals: d.savedMeals.filter((m) => m.id !== id) }, id))
       },
 
       addCustomFood(food) {
-        const created: Food = { ...food, id: uid('f-'), custom: true }
+        const created: Food = { ...food, id: uid('f-'), updatedAt: now(), custom: true }
         patch((d) => ({ ...d, customFoods: [...d.customFoods, created] }))
         return created
       },
 
       deleteCustomFood(id) {
-        patch((d) => ({ ...d, customFoods: d.customFoods.filter((f) => f.id !== id) }))
+        patch((d) => tomb({ ...d, customFoods: d.customFoods.filter((f) => f.id !== id) }, id))
       },
 
       /* ----------------------- movement & recovery --------------------- */
       logCardio(entry) {
-        patchR((d) => ({ ...d, cardio: [...d.cardio, { ...entry, id: uid('c-') }] }))
+        patchR((d) => ({ ...d, cardio: [...d.cardio, { ...entry, id: uid('c-'), updatedAt: now() }] }))
       },
 
       deleteCardio(id) {
-        patchR((d) => ({ ...d, cardio: d.cardio.filter((c) => c.id !== id) }))
+        patchR((d) => tomb({ ...d, cardio: d.cardio.filter((c) => c.id !== id) }, id))
       },
 
       logSteps(date, steps) {
@@ -605,6 +641,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             steps: exists
               ? d.steps.map((s) => (s.date === date ? { date, steps } : s))
               : [...d.steps, { date, steps }],
+            stepsAt: { ...d.stepsAt, [date]: now() },
           }
         })
       },
@@ -615,14 +652,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return {
             ...d,
             sleep: existing
-              ? d.sleep.map((s) => (s.date === entry.date ? { ...s, ...entry } : s))
-              : [...d.sleep, { ...entry, id: uid('sl-') }],
+              ? d.sleep.map((s) => (s.date === entry.date ? { ...s, ...entry, updatedAt: now() } : s))
+              : [...d.sleep, { ...entry, id: uid('sl-'), updatedAt: now() }],
           }
         })
       },
 
       deleteSleep(id) {
-        patchR((d) => ({ ...d, sleep: d.sleep.filter((s) => s.id !== id) }))
+        patchR((d) => tomb({ ...d, sleep: d.sleep.filter((s) => s.id !== id) }, id))
       },
 
       /* --------------------------- consistency ------------------------- */
@@ -632,39 +669,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const next = list.includes(habitId)
             ? list.filter((x) => x !== habitId)
             : [...list, habitId]
-          return { ...d, habitLog: { ...d.habitLog, [date]: next } }
+          return {
+            ...d,
+            habitLog: { ...d.habitLog, [date]: next },
+            habitLogAt: { ...d.habitLogAt, [date]: now() },
+          }
         })
       },
 
       addHabit(habit) {
         patch((d) => ({
           ...d,
-          habits: [...d.habits, { ...habit, id: uid('h-'), createdAt: today() }],
+          habits: [...d.habits, { ...habit, id: uid('h-'), updatedAt: now(), createdAt: today() }],
         }))
       },
 
       updateHabit(id, p) {
-        patchR((d) => ({ ...d, habits: d.habits.map((h) => (h.id === id ? { ...h, ...p } : h)) }))
+        patchR((d) => ({ ...d, habits: d.habits.map((h) => (h.id === id ? { ...h, ...p, updatedAt: now() } : h)) }))
       },
 
       deleteHabit(id) {
-        patchR((d) => ({ ...d, habits: d.habits.filter((h) => h.id !== id) }))
+        patchR((d) => tomb({ ...d, habits: d.habits.filter((h) => h.id !== id) }, id))
       },
 
       toggleSupplement(id, date) {
         patch((d) => {
           const list = d.supplementLog[date] ?? []
           const next = list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
-          return { ...d, supplementLog: { ...d.supplementLog, [date]: next } }
+          return {
+            ...d,
+            supplementLog: { ...d.supplementLog, [date]: next },
+            supplementLogAt: { ...d.supplementLogAt, [date]: now() },
+          }
         })
       },
 
       addSupplement(s) {
-        patch((d) => ({ ...d, supplements: [...d.supplements, { ...s, id: uid('sp-') }] }))
+        patch((d) => ({ ...d, supplements: [...d.supplements, { ...s, id: uid('sp-'), updatedAt: now() }] }))
       },
 
       deleteSupplement(id) {
-        patch((d) => ({ ...d, supplements: d.supplements.filter((s) => s.id !== id) }))
+        patch((d) => tomb({ ...d, supplements: d.supplements.filter((s) => s.id !== id) }, id))
       },
 
       saveCheckIn(entry) {
@@ -688,32 +733,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...d,
           photos: [
             ...d.photos,
-            { id: uid('p-'), date, angle, blobKey, weightKg, shared: false },
+            { id: uid('p-'), updatedAt: now(), date, angle, blobKey, weightKg, shared: false },
           ],
         }))
       },
 
       updatePhoto(id, p) {
-        patch((d) => ({ ...d, photos: d.photos.map((x) => (x.id === id ? { ...x, ...p } : x)) }))
+        patch((d) => ({ ...d, photos: d.photos.map((x) => (x.id === id ? { ...x, ...p, updatedAt: now() } : x)) }))
       },
 
       async deletePhoto(id) {
         const photo = data.photos.find((p) => p.id === id)
         if (photo) await deleteBlob(photo.blobKey)
-        patch((d) => ({ ...d, photos: d.photos.filter((p) => p.id !== id) }))
+        patch((d) => tomb({ ...d, photos: d.photos.filter((p) => p.id !== id) }, id))
       },
 
       /* ---------------------------- planning --------------------------- */
       addGoal(g) {
-        patch((d) => ({ ...d, goals: [...d.goals, { ...g, id: uid('g-') }] }))
+        patch((d) => ({ ...d, goals: [...d.goals, { ...g, id: uid('g-'), updatedAt: now() }] }))
       },
 
       updateGoal(id, p) {
-        patch((d) => ({ ...d, goals: d.goals.map((g) => (g.id === id ? { ...g, ...p } : g)) }))
+        patch((d) => ({ ...d, goals: d.goals.map((g) => (g.id === id ? { ...g, ...p, updatedAt: now() } : g)) }))
       },
 
       deleteGoal(id) {
-        patch((d) => ({ ...d, goals: d.goals.filter((g) => g.id !== id) }))
+        patch((d) => tomb({ ...d, goals: d.goals.filter((g) => g.id !== id) }, id))
       },
 
       startChallenge(c) {
@@ -721,10 +766,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...d,
           // only one challenge runs at a time; older ones stay in history
           challenges: [
-            ...d.challenges.map((x) => ({ ...x, active: false })),
+            ...d.challenges.map((x) => ({ ...x, active: false, updatedAt: now() })),
             {
               ...c,
-              id: uid('ch-'),
+              id: uid('ch-'), updatedAt: now(),
               active: true,
               endDate: addDays(c.startDate, c.days - 1),
             },
@@ -744,22 +789,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       addPhase(p) {
-        patch((d) => ({ ...d, phases: [...d.phases, { ...p, id: uid('ph-') }] }))
+        patch((d) => ({ ...d, phases: [...d.phases, { ...p, id: uid('ph-'), updatedAt: now() }] }))
       },
 
       updatePhase(id, p) {
-        patch((d) => ({ ...d, phases: d.phases.map((x) => (x.id === id ? { ...x, ...p } : x)) }))
+        patch((d) => ({ ...d, phases: d.phases.map((x) => (x.id === id ? { ...x, ...p, updatedAt: now() } : x)) }))
       },
 
       deletePhase(id) {
-        patch((d) => ({ ...d, phases: d.phases.filter((p) => p.id !== id) }))
+        patch((d) => tomb({ ...d, phases: d.phases.filter((p) => p.id !== id) }, id))
       },
 
       /* ------------------------------ coach ---------------------------- */
       appendCoach(m) {
         patch((d) => ({
           ...d,
-          coachLog: [...d.coachLog, { ...m, id: uid('cm-'), at: Date.now() }].slice(-100),
+          coachLog: [...d.coachLog, { ...m, id: uid('cm-'), updatedAt: now(), at: Date.now() }].slice(-100),
         }))
       },
 
@@ -819,6 +864,18 @@ function migrate(doc: AppData): AppData {
     // Built-in plans ship with the app, so refresh them while keeping user plans.
     plans: [...SEED_PLANS, ...(doc.plans ?? []).filter((p) => !p.builtIn)],
     deviceId: doc.deviceId || base.deviceId,
+
+    // v1 → v2 sync fields. A pre-sync document has no write stamps at all,
+    // which the merge reads as "older than anything" — correct, because the
+    // first stamped write on any device should win over untracked history.
+    rev: doc.rev ?? 0,
+    syncedAt: doc.syncedAt ?? null,
+    deleted: doc.deleted ?? {},
+    habitLogAt: doc.habitLogAt ?? {},
+    supplementLogAt: doc.supplementLogAt ?? {},
+    profileAt: doc.profileAt ?? 0,
+    settingsAt: doc.settingsAt ?? 0,
+    stepsAt: doc.stepsAt ?? {},
   }
   return merged
 }
